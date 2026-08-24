@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+/* Tokens del tema. En Tailwind v4 la configuración vive en CSS: cada variable
+   declarada acá genera las utilidades correspondientes (`text-accent`,
+   `bg-ink`, …), así que el color de acento se define una vez y no queda
+   repetido como literal en veinte componentes. */
+@theme {
+  --color-ink: #05070d;
+  --color-accent: #5ed6ff;
+  --color-accent-soft: #a0ecff;
+}
+
+@layer base {
+  html {
+    /* La interfaz es oscura y punto: sin esto, los controles nativos (el
+       selector de archivo, la barra de scroll) se dibujan claros sobre el
+       fondo oscuro en un sistema en modo claro. */
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-ink);
+    color: rgb(226 232 240); /* slate-200 */
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Los números de las tablas y tarjetas se comparan en vertical: con cifras
+     de ancho variable, las columnas de decimales bailan de fila en fila. */
+  table,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Superficie de vidrio: el patrón que repite toda la interfaz para apoyar
+     contenido sobre el fondo animado sin taparlo del todo. */
+  .glass {
+    background-color: color-mix(in oklab, white 4%, transparent);
+    border: 1px solid color-mix(in oklab, white 10%, transparent);
+    backdrop-filter: blur(12px);
+  }
+}

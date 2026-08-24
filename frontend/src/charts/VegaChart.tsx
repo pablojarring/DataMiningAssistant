@@ -42,5 +42,8 @@ export function VegaChart({ spec, className }: { spec: TopLevelSpec; className?:
     };
   }, [spec]);
 
-  return <div className={className ?? "chart"} ref={container} />;
+  // `w-full` no es decorativo: las specs usan `width: "container"`, y Vega mide
+  // este div para decidir el ancho del grafico. Si no tuviera un ancho resuelto,
+  // dibujaria un SVG de cero pixeles.
+  return <div className={className ?? "mt-3 w-full"} ref={container} />;
 }

@@ -14,17 +14,34 @@
 
 import type { TopLevelSpec } from "vega-lite";
 
-import type { ColumnProfile, Correlations } from "../api";
+import type { ColumnProfile, Correlations } from "@/api";
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-const ACCENT = "#3b6ea5";
+/** El cian de la interfaz, el mismo que usan la grilla cinetica y el plasma. */
+const ACCENT = "#5ed6ff";
+const MUTED = "#94a3b8"; // slate-400
+const HAIRLINE = "rgba(255,255,255,0.15)";
 
-/** Config común: tipografía del sitio y menos tinta de la que Vega pone por defecto. */
+/**
+ * Config común de los gráficos.
+ *
+ * `background: "transparent"` es imprescindible acá: por defecto Vega pinta un
+ * rectángulo blanco debajo del gráfico, que sobre la interfaz oscura aparecería
+ * como un recuadro luminoso tapando el fondo animado. Con el fondo transparente,
+ * las tarjetas de vidrio y el plasma se ven a través de cada gráfico.
+ */
 const CONFIG = {
   font: FONT,
-  axis: { labelColor: "#57606a", titleColor: "#57606a", grid: false, domainColor: "#d8d8d4" },
+  background: "transparent",
+  axis: {
+    labelColor: MUTED,
+    titleColor: MUTED,
+    grid: false,
+    domainColor: HAIRLINE,
+    tickColor: HAIRLINE,
+  },
   view: { stroke: null },
-  legend: { labelColor: "#57606a", titleColor: "#57606a" },
+  legend: { labelColor: MUTED, titleColor: MUTED },
 } as const;
 
 const SCHEMA = "https://vega.github.io/schema/vega-lite/v5.json";
@@ -58,7 +75,7 @@ export function nullsSpec(columns: ColumnProfile[]): TopLevelSpec {
     },
     width: "container",
     height: { step: 20 },
-    mark: { type: "bar", color: "#d97757", cornerRadiusEnd: 2 },
+    mark: { type: "bar", color: "#f0a56a", cornerRadiusEnd: 2 },
     encoding: {
       y: { field: "columna", type: "nominal", sort: "-x", title: null },
       x: {
@@ -103,10 +120,21 @@ export function correlationSpec(correlations: Correlations): TopLevelSpec {
           color: {
             field: "valor",
             type: "quantitative",
-            // Escala divergente centrada en 0 y fijada en [-1, 1]: con una
-            // escala automática, un tablero donde todo ronda 0,1 se pintaría con
-            // los mismos colores intensos que uno con correlaciones de 0,95.
-            scale: { scheme: "blueorange", domain: [-1, 1], reverse: true },
+            // Divergente y anclada en [-1, 1]: con una escala automática, un
+            // tablero donde todo ronda 0,1 se pintaría con los mismos colores
+            // intensos que uno con correlaciones de 0,95.
+            //
+            // Los colores son explícitos y no un `scheme` del catálogo porque
+            // todos los divergentes de Vega tienen el centro claro — pensados
+            // para papel. Sobre una interfaz oscura eso invierte el mensaje: la
+            // celda más luminosa del tablero pasa a ser la de correlación CERO,
+            // justo la que no hay que mirar. Con el centro oscuro, la vista va
+            // sola a los pares fuertes, que es para lo que existe este gráfico.
+            scale: {
+              type: "linear",
+              domain: [-1, 0, 1],
+              range: ["#f0a56a", "#131b26", "#5ed6ff"],
+            },
             legend: { title: "r de Pearson" },
           },
           tooltip: [
@@ -121,10 +149,11 @@ export function correlationSpec(correlations: Correlations): TopLevelSpec {
         encoding: {
           text: { field: "valor", type: "quantitative", format: ".2f" },
           color: {
-            // Texto oscuro sobre celdas pálidas y claro sobre las saturadas: sin
-            // esto, los valores cerca de ±1 quedan ilegibles sobre su propio color.
-            condition: { test: "abs(datum.valor) > 0.6", value: "#ffffff" },
-            value: "#3d3d3a",
+            // Ahora las celdas claras son las de correlación fuerte, así que la
+            // regla se invierte respecto del tema claro: texto oscuro sobre
+            // ellas, texto claro sobre el fondo apagado del centro.
+            condition: { test: "abs(datum.valor) > 0.45", value: "#0b1220" },
+            value: "#94a3b8",
           },
         },
       },
@@ -196,13 +225,13 @@ export function boxplotSpec(column: ColumnProfile): TopLevelSpec {
       },
     },
     layer: [
-      { mark: { type: "rule", color: "#8a8a85" }, encoding: { x2: { field: "max" } } },
+      { mark: { type: "rule", color: "rgba(255,255,255,0.35)" }, encoding: { x2: { field: "max" } } },
       {
         mark: { type: "bar", height: 16, color: ACCENT, opacity: 0.85 },
         encoding: { x: { field: "p25", type: "quantitative" }, x2: { field: "p75" } },
       },
       {
-        mark: { type: "tick", thickness: 2, size: 22, color: "#ffffff" },
+        mark: { type: "tick", thickness: 2, size: 22, color: "#04141c" },
         encoding: {
           x: { field: "p50", type: "quantitative" },
           tooltip: [
@@ -266,7 +295,7 @@ export function booleanSpec(column: ColumnProfile): TopLevelSpec {
       color: {
         field: "valor",
         type: "nominal",
-        scale: { domain: ["true", "false", "sin dato"], range: [ACCENT, "#8fb0d0", "#d97757"] },
+        scale: { domain: ["true", "false", "sin dato"], range: [ACCENT, "#3f7f99", "#f0a56a"] },
         legend: null,
       },
       tooltip: [

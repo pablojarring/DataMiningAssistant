@@ -34,6 +34,11 @@ Lo que ya funciona:
   correlaciones, y una tarjeta por columna con histograma y boxplot para las
   numéricas, top-K para las categóricas, reparto true/false para las booleanas y
   rango para las de fecha.
+- **Interfaz oscura sobre un fondo animado.** Tailwind CSS v4 con la estructura
+  de shadcn (`src/components/ui/`, alias `@/`, helper `cn`). El fondo es la
+  mezcla de dos componentes de [21st.dev](https://21st.dev): un plasma de WebGL
+  y una grilla que se deforma hacia el cursor y ondula con cada clic. Ver
+  `src/components/ui/kinetic-shader-background.tsx`.
 - CI en GitHub Actions: lint + type check + tests de backend contra Postgres y
   MinIO reales; lint + build del frontend.
 
@@ -148,6 +153,20 @@ uvicorn app.main:app --reload
 cd frontend
 npm install
 npm run dev
+```
+
+El frontend usa **Tailwind CSS v4** (configurado en CSS, dentro de
+`src/index.css`, sin `tailwind.config.js`) y la convención de carpetas de
+**shadcn**: los componentes de interfaz reutilizables van en
+`src/components/ui/`, y el alias `@/` apunta a `src/`. Esa combinación es la que
+espera cualquier componente copiado del catálogo de 21st.dev o del registro de
+shadcn, así que pegarlo funciona sin reescribirle los imports.
+
+Para agregar componentes de shadcn con su CLI:
+
+```bash
+cd frontend && npx shadcn@latest init   # detecta Tailwind y el alias ya configurados
+npx shadcn@latest add button dialog     # o el componente que haga falta
 ```
 
 ## Tests y lint
