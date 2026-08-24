@@ -17,6 +17,13 @@ extend-immutable-calls = [
     "fastapi.Form",
 ]
 
+[tool.ruff.lint.isort]
+# `alembic/` es el directorio de scripts de migracion, no un paquete nuestro
+# (no tiene __init__.py). Sin esto, ruff lo clasifica como first-party solo por
+# el nombre de la carpeta y exige agrupar `from alembic...` junto a
+# `from app...`, mezclando una libreria de terceros con nuestro propio codigo.
+known-third-party = ["alembic"]
+
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]

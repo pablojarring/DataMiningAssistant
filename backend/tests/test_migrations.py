@@ -8,14 +8,14 @@ explota recién al desplegar, así que conviene atraparlo en CI.
 
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
+from sqlalchemy import inspect
 
 from app.database import Base, engine
 
 
 def test_migration_creates_expected_tables(db_schema: None) -> None:
     with engine.connect() as connection:
-        inspector = MigrationContext.configure(connection).connection.engine
-        table_names = set(inspector.dialect.get_table_names(connection))
+        table_names = set(inspect(connection).get_table_names())
     assert {"datasets", "jobs"} <= table_names
 
 
