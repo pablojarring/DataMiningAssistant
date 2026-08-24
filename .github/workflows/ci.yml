@@ -27,8 +27,34 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql+psycopg://dataforge:dataforge_dev_password@localhost:5432/dataforge
+      MINIO_ENDPOINT: http://localhost:9000
+      MINIO_ROOT_USER: dataforge
+      MINIO_ROOT_PASSWORD: dataforge_dev_password
     steps:
       - uses: actions/checkout@v4
+
+      # MinIO va como paso y no como `services:` porque necesita argumentos de
+      # comando (`server /data`), y el bloque `services` de Actions solo permite
+      # imagen, env, puertos y opciones de `docker run` — no los args. Levantarlo
+      # a mano además deja la misma imagen pineada que usa docker-compose, así
+      # que CI y desarrollo local corren exactamente el mismo MinIO.
+      - name: Levantar MinIO
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=dataforge \
+            -e MINIO_ROOT_PASSWORD=dataforge_dev_password \
+            minio/minio:RELEASE.2024-11-07T00-52-20Z server /data
+          for _ in $(seq 1 30); do
+            if curl -sf http://localhost:9000/minio/health/live >/dev/null; then
+              echo "MinIO listo"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "MinIO no respondió en 60s"
+          docker logs minio
+          exit 1
 
       - uses: actions/setup-python@v5
         with:
@@ -45,7 +71,8 @@ jobs:
         run: mypy app tests
 
       # Los fixtures construyen el esquema corriendo Alembic contra el servicio
-      # postgres de arriba, así que esto también valida las migraciones.
+      # postgres de arriba, así que esto también valida las migraciones. Los
+      # tests de subida hablan con el MinIO real levantado más arriba.
       - name: Tests (pytest)
         run: pytest --cov=app --cov-report=term-missing
 

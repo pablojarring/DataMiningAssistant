@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     )
     redis_url: str = "redis://localhost:6379/0"
 
+    # --- MinIO / S3 ---
+    # `minio_endpoint` es la direccion HTTP del servicio. Dentro de la red de
+    # Docker Compose es http://minio:9000; corriendo el backend a mano contra la
+    # infra dockerizada es http://localhost:<MINIO_API_PORT>.
+    minio_endpoint: str = "http://localhost:9000"
+    minio_root_user: str = "dataforge"
+    minio_root_password: str = "dataforge_dev_password"
+    minio_bucket: str = "dataforge-datasets"
+
     # Lista separada por comas en la env var; ver el validator de abajo.
     backend_cors_origins: str = "http://localhost:5173"
 

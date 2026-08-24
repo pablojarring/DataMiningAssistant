@@ -10,28 +10,32 @@ motor de leakage, roadmap por fases y trade-offs) está en
 [`docs/DataForge-arquitectura.md`](docs/DataForge-arquitectura.md). Este
 README cubre solo cómo correr lo que ya existe.
 
-## Estado actual: Fase 0 — Fundamentos
+## Estado actual: Fase 1 — Ingesta (en progreso)
 
 Lo que ya funciona:
 
 - `docker compose up` levanta Postgres, MinIO, Redis, el backend (FastAPI)
   y el frontend (React + Vite + TS), todos detrás de Traefik.
-- Backend con `GET /health` y endpoints de `Dataset` (`POST/GET /datasets`,
-  `GET /datasets/{id}`) sobre Postgres vía SQLAlchemy + Alembic.
-- Frontend mínimo que consume esos endpoints: muestra el estado del backend
-  y permite registrar datasets (solo metadata todavía, ver TODO abajo).
-- CI en GitHub Actions: lint + type check + tests para backend y frontend.
+- **Subida real de datasets.** `POST /datasets` recibe un CSV o Parquet por
+  multipart, lo guarda en MinIO, infiere el esquema con DuckDB (nombre y tipo
+  de cada columna, conteo de nulos, cantidad de filas) y registra la ficha en
+  Postgres. El frontend tiene selector de archivo y muestra el esquema
+  resultante en una tabla.
+- Endpoints de `Dataset` (`POST/GET /datasets`, `GET /datasets/{id}`) y
+  `GET /health`, sobre Postgres vía SQLAlchemy + Alembic.
+- CI en GitHub Actions: lint + type check + tests de backend contra Postgres y
+  MinIO reales; lint + build del frontend.
 
-Verificado antes de entregar: `ruff` y `mypy` limpios, 5 tests en verde
-contra una Postgres real, migración de Alembic aplicada y revertida en
-ambas direcciones sin residuos, cero drift entre modelos y migración,
-build de producción del frontend OK, y los tres endpoints respondiendo
-correctamente contra la base de datos.
+Decisión de diseño que vale la pena mencionar: los tests de subida corren
+contra un MinIO de verdad, no contra un mock de S3. Un mock confirma que
+llamamos a `upload_fileobj`, no que el objeto quede guardado y se pueda
+recuperar — y los bugs de storage (credenciales, firma v4, bucket inexistente)
+viven justo en esa diferencia.
 
-Lo que **todavía no** hace (llega en fases siguientes — ver roadmap en
-`docs/DataForge-arquitectura.md`, sección 5): subir archivos reales a
-MinIO, perfilado EDA, splitting, detección de leakage, feature engineering,
-entrenamiento/serving de modelos, Airflow, Spark, observabilidad.
+Lo que **todavía no** hace (ver roadmap en `docs/DataForge-arquitectura.md`,
+sección 5): perfilado EDA con workers de Celery, dashboards, splitting,
+detección de leakage, feature engineering, entrenamiento/serving de modelos,
+Airflow, Spark, observabilidad.
 
 ## Cómo correrlo
 
@@ -99,7 +103,8 @@ npm run dev
 ## Tests y lint
 
 ```bash
-# Backend (necesita Postgres accesible — docker compose up -d postgres)
+# Backend (necesita Postgres y MinIO accesibles)
+#   docker compose up -d postgres minio
 cd backend && ruff check . && mypy app tests && pytest
 
 # Frontend
@@ -112,6 +117,15 @@ Alembic**, no `Base.metadata.create_all()`. Es algo más lento, pero
 ejecuta las migraciones — que es justo donde viven los bugs de DDL. Con
 este enfoque, un `pytest` verde significa que las migraciones corren de
 verdad.
+
+Si levantás la infra con `docker compose` pero corrés `pytest` desde tu
+máquina, apuntá las variables al host y no a los hostnames internos de
+compose:
+
+```bash
+export DATABASE_URL=postgresql+psycopg://dataforge:dataforge_dev_password@localhost:5432/dataforge
+export MINIO_ENDPOINT=http://localhost:9000
+```
 
 Además, `tests/test_migrations.py::test_no_model_migration_drift` falla si
 alguien toca `app/models.py` sin generar la migración correspondiente. Ese
@@ -127,8 +141,9 @@ alembic revision --autogenerate -m "descripción del cambio"
 alembic upgrade head
 ```
 
-## Próximo paso: Fase 1
+## Próximo paso: resto de Fase 1
 
-Ingesta real de CSV/Parquet a MinIO, inferencia de esquema con DuckDB, job
-de Celery para el perfilado EDA, y dashboards en el frontend. Detalle
-completo en `docs/DataForge-arquitectura.md`, sección 5 (Fase 1).
+Job de Celery para el perfilado EDA (estadísticas por columna, correlaciones,
+matriz de nulos) con su ciclo de vida de `Job`, y los dashboards en el
+frontend con Vega-Lite. Detalle completo en
+`docs/DataForge-arquitectura.md`, sección 5 (Fase 1).

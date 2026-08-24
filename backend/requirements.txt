@@ -6,3 +6,8 @@ alembic==1.14.0
 pydantic==2.10.3
 pydantic-settings==2.6.1
 python-multipart==0.0.19
+# Cliente S3 para hablar con MinIO (mismo protocolo que Amazon S3, asi que el
+# dia que migremos a S3 real este codigo no cambia).
+boto3==1.35.80
+# Lee CSV/Parquet e infiere el esquema sin cargar el archivo entero en memoria.
+duckdb==1.1.3

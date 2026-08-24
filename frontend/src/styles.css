@@ -77,9 +77,20 @@ h1 {
   border-bottom: 1px solid #e2e2df;
 }
 
-.dataset-list .name {
+.dataset-list .link {
   flex: 1;
+  text-align: left;
+  font: inherit;
   font-weight: 600;
+  background: none;
+  border: none;
+  padding: 0;
+  color: #b45309;
+  cursor: pointer;
+}
+
+.dataset-list .link:hover {
+  text-decoration: underline;
 }
 
 .dataset-list .format {
@@ -92,15 +103,47 @@ h1 {
   padding: 2px 8px;
 }
 
-.dataset-list .version {
+.dataset-list .size,
+.dataset-list .rows {
   color: #57606a;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  min-width: 28px;
   text-align: right;
 }
 
 .dataset-list .empty {
   color: #57606a;
   font-style: italic;
+}
+
+.dataset-form button:disabled {
+  background: #d0d0cd;
+  cursor: not-allowed;
+}
+
+.schema-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.schema-table th,
+.schema-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e2df;
+}
+
+.schema-table th {
+  color: #57606a;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.schema-table code {
+  background: #efeeea;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
 }

@@ -3,7 +3,11 @@ name: dataforge
 services:
   # --- Reverse proxy: entrypoint único para frontend + API + consolas de infra ---
   traefik:
-    image: traefik:v3.1
+    # v3.1 no sirve con Docker Engine 29+: su provider pide la API 1.24 del
+    # daemon y desde la 29 el minimo aceptado es 1.44, asi que Traefik no
+    # descubre ningun contenedor y todo responde 404. v3.7 negocia una version
+    # soportada.
+    image: traefik:v3.7.11
     command:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
@@ -83,10 +87,18 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://dataforge:dataforge_dev_password@postgres:5432/dataforge}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173}
+      # `minio` es el hostname del servicio dentro de la red de compose, y el
+      # puerto es el interno (9000), no el publicado en el host.
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-dataforge}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-dataforge_dev_password}
+      MINIO_BUCKET: ${MINIO_BUCKET:-dataforge-datasets}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     volumes:
       - ./backend:/app

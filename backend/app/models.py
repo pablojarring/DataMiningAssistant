@@ -10,7 +10,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -57,8 +57,12 @@ class Dataset(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     source_uri: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     format: Mapped[DatasetFormat] = mapped_column(Enum(DatasetFormat, name="dataset_format"), nullable=False)
-    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    row_count_estimate: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # BigInteger y no Integer: int4 topea en 2.147.483.647, o sea ~2,1 GB de
+    # tamano y ~2.100 millones de filas. Para una herramienta cuyo proposito es
+    # justamente masticar datasets grandes, ese techo se alcanza con un solo
+    # archivo y el desbordamiento aparece recien al insertar, en produccion.
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    row_count_estimate: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # Esquema inferido: [{"name": "col", "dtype": "float64", "nullable": true}, ...]
     inferred_schema: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
