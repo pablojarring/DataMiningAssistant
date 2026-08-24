@@ -10,7 +10,7 @@ motor de leakage, roadmap por fases y trade-offs) está en
 [`docs/DataForge-arquitectura.md`](docs/DataForge-arquitectura.md). Este
 README cubre solo cómo correr lo que ya existe.
 
-## Estado actual: Fase 1 — Ingesta y perfilado EDA
+## Estado actual: Fase 1 completa — Ingesta, perfilado EDA y dashboards
 
 Lo que ya funciona:
 
@@ -29,6 +29,11 @@ Lo que ya funciona:
   `GET /datasets/{id}/profile`.
 - Endpoints de `Dataset` (`POST/GET /datasets`, `GET /datasets/{id}`) y
   `GET /health`, sobre Postgres vía SQLAlchemy + Alembic.
+- **Dashboards en el frontend.** Al terminar el análisis, la interfaz dibuja con
+  Vega-Lite: barras de datos faltantes por columna, mapa de calor de
+  correlaciones, y una tarjeta por columna con histograma y boxplot para las
+  numéricas, top-K para las categóricas, reparto true/false para las booleanas y
+  rango para las de fecha.
 - CI en GitHub Actions: lint + type check + tests de backend contra Postgres y
   MinIO reales; lint + build del frontend.
 
@@ -42,10 +47,18 @@ Dos decisiones de diseño que vale la pena mencionar:
   alternativa —un proyecto `workers/` con su propia copia de los modelos, la
   config y el cliente de storage— garantiza que tarde o temprano el worker
   escriba en un esquema que la API ya cambió.
+- El navegador nunca recibe las filas del dataset. Los histogramas, cuartiles y
+  correlaciones llegan ya calculados por DuckDB, así que un dataset de millones
+  de filas se grafica con el mismo payload que uno de cien. Es también la razón
+  de que los boxplots estén armados a mano en vez de con el `mark: "boxplot"` de
+  Vega-Lite, que necesita los datos crudos para calcular los cuartiles.
+
+Con esto la Fase 1 queda cerrada: es el MVP demostrable del roadmap — la
+versión con interfaz gráfica de un `pandas-profiling`, sobre una arquitectura
+que ya es distribuida de verdad.
 
 Lo que **todavía no** hace (ver roadmap en `docs/DataForge-arquitectura.md`,
-sección 5): los dashboards del frontend (histogramas, boxplots, mapa de
-correlación y matriz de nulos), splitting, detección de leakage, feature
+sección 5): splitting de train/val/test, detección de leakage, feature
 engineering, entrenamiento/serving de modelos, Airflow, Spark, observabilidad.
 
 ## Cómo correrlo
