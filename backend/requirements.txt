@@ -11,3 +11,7 @@ python-multipart==0.0.19
 boto3==1.35.80
 # Lee CSV/Parquet e infiere el esquema sin cargar el archivo entero en memoria.
 duckdb==1.1.3
+# Cola de tareas: el perfilado EDA (y mas adelante splitting, features y
+# entrenamiento) corre en workers separados, no dentro del request. El extra
+# [redis] trae el cliente del broker/result backend.
+celery[redis]==5.4.0

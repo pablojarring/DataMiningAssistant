@@ -8,7 +8,9 @@ duplicados, `ondelete` olvidado, drift modelo/migración). Con este fixture, un
 `pytest` verde significa que las migraciones realmente corren.
 
 Requiere una Postgres accesible vía DATABASE_URL: en local, `docker compose up
--d postgres`; en CI, el workflow levanta un servicio postgres efímero.
+-d postgres`; en CI, el workflow levanta un servicio postgres efímero. Los tests
+no corren contra esa base sino contra una hermana terminada en `_test`, que se
+crea sola — ver el `conftest.py` de la raíz del backend y el porqué.
 
 Desde Fase 1 también requiere un MinIO accesible vía MINIO_ENDPOINT, por la
 misma razón: los tests de subida corren contra el storage real, no contra un
@@ -28,6 +30,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app import storage
+from app.celery_app import celery_app
 from app.config import get_settings
 from app.database import SessionLocal
 from app.main import app
@@ -111,6 +114,31 @@ def minio_bucket(monkeypatch: pytest.MonkeyPatch) -> Generator[str, None, None]:
             pass
         get_settings.cache_clear()
         storage.get_s3_client.cache_clear()
+
+
+@pytest.fixture
+def celery_eager() -> Generator[None, None, None]:
+    """Ejecuta las tareas de Celery en el proceso del test, sin broker.
+
+    Coherencia con el criterio de no mockear: acá lo único que se reemplaza es
+    el **transporte**. La tarea que corre es la de verdad, contra la Postgres de
+    verdad y el MinIO de verdad; lo que no interviene es el viaje del mensaje
+    por Redis. Es la pieza con menos riesgo propio del proyecto (código de
+    Celery, no nuestro) y la más cara de montar en un test: haría falta levantar
+    un worker como subproceso y sincronizarse con él para cada caso.
+
+    El camino con broker real igual se verifica, pero fuera de pytest: con la
+    pila levantada por Docker Compose (ver la sección de perfilado del README).
+
+    `task_eager_propagates` queda en False a propósito: con True, una tarea que
+    falla levanta la excepción en quien la encoló, y los tests del camino de
+    error dejarían de comprobar lo que importa — que el fallo quede registrado
+    en la fila del job, como pasa cuando el worker es un proceso aparte.
+    """
+    celery_app.conf.task_always_eager = True
+    celery_app.conf.task_eager_propagates = False
+    yield
+    celery_app.conf.task_always_eager = False
 
 
 @pytest.fixture

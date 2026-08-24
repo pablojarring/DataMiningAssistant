@@ -82,6 +82,22 @@ def upload_fileobj(fileobj: BinaryIO, key: str) -> str:
     return f"s3://{settings.minio_bucket}/{key}"
 
 
+def key_from_uri(source_uri: str) -> str:
+    """Extrae la key a partir de un `s3://bucket/key`.
+
+    En la base guardamos la URI completa (que es autoexplicativa al mirar una
+    fila y sobrevive a un cambio de bucket), pero boto3 pide bucket y key por
+    separado. Este es el único lugar donde se deshace esa forma.
+    """
+    prefix = "s3://"
+    if not source_uri.startswith(prefix):
+        raise ValueError(f"URI de objeto no soportada: {source_uri!r}")
+    _, _, key = source_uri[len(prefix) :].partition("/")
+    if not key:
+        raise ValueError(f"La URI no incluye ninguna key: {source_uri!r}")
+    return key
+
+
 def download_to_path(key: str, destination: Path) -> Path:
     settings = get_settings()
     get_s3_client().download_file(settings.minio_bucket, key, str(destination))

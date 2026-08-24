@@ -9,25 +9,17 @@ que solo lo parece.
 import io
 from pathlib import Path
 
-import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app import storage
-
-
-def _upload(client: TestClient, path: Path, filename: str | None = None) -> httpx.Response:
-    with path.open("rb") as handle:
-        return client.post(
-            "/datasets",
-            files={"file": (filename or path.name, handle, "application/octet-stream")},
-        )
+from tests.helpers import upload_dataset
 
 
 def test_upload_csv_infers_schema_and_stores_file(
     client: TestClient, db_session: Session, minio_bucket: str, csv_file: Path
 ) -> None:
-    response = _upload(client, csv_file)
+    response = upload_dataset(client, csv_file)
     assert response.status_code == 201, response.text
     created = response.json()
 
@@ -51,7 +43,7 @@ def test_uploaded_object_is_really_in_minio(
     client: TestClient, db_session: Session, minio_bucket: str, csv_file: Path
 ) -> None:
     """El archivo se puede volver a bajar, byte por byte igual al original."""
-    created = _upload(client, csv_file).json()
+    created = upload_dataset(client, csv_file).json()
     key = f"datasets/{created['id']}/casas.csv"
 
     buffer = io.BytesIO()
@@ -62,7 +54,7 @@ def test_uploaded_object_is_really_in_minio(
 def test_upload_parquet(
     client: TestClient, db_session: Session, minio_bucket: str, parquet_file: Path
 ) -> None:
-    response = _upload(client, parquet_file)
+    response = upload_dataset(client, parquet_file)
     assert response.status_code == 201, response.text
     created = response.json()
 
@@ -91,7 +83,7 @@ def test_rejects_unsupported_extension(
     path = tmp_path / "notas.txt"
     path.write_text("esto no es un dataset", encoding="utf-8")
 
-    response = _upload(client, path)
+    response = upload_dataset(client, path)
     assert response.status_code == 400
     assert ".csv" in response.json()["detail"]
 
@@ -102,7 +94,7 @@ def test_rejects_empty_file(
     path = tmp_path / "vacio.csv"
     path.write_bytes(b"")
 
-    response = _upload(client, path)
+    response = upload_dataset(client, path)
     assert response.status_code == 400
     assert "vacío" in response.json()["detail"]
 
@@ -118,7 +110,7 @@ def test_rejects_file_that_is_not_really_parquet(
     path = tmp_path / "mentira.parquet"
     path.write_bytes(b"esto no es parquet ni de casualidad")
 
-    response = _upload(client, path)
+    response = upload_dataset(client, path)
     assert response.status_code == 400
     assert "No se pudo leer" in response.json()["detail"]
 
@@ -129,7 +121,7 @@ def test_failed_upload_leaves_no_dataset_row(
     """Un archivo ilegible no debe dejar una ficha huérfana en Postgres."""
     path = tmp_path / "mentira.parquet"
     path.write_bytes(b"basura")
-    _upload(client, path)
+    upload_dataset(client, path)
 
     assert client.get("/datasets").json() == []
 
@@ -137,7 +129,7 @@ def test_failed_upload_leaves_no_dataset_row(
 def test_list_and_detail(
     client: TestClient, db_session: Session, minio_bucket: str, csv_file: Path
 ) -> None:
-    created = _upload(client, csv_file).json()
+    created = upload_dataset(client, csv_file).json()
 
     listed = client.get("/datasets")
     assert listed.status_code == 200

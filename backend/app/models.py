@@ -1,4 +1,4 @@
-"""Modelos SQLAlchemy — Fase 0 solo trae Dataset y Job.
+"""Modelos SQLAlchemy — Dataset, Job y Profile.
 
 El resto de entidades del plan (SplitConfig, LeakageReport, FeaturePipeline,
 Experiment, ModelVersion — ver DataForge-arquitectura.md, sección 3.1) se
@@ -75,6 +75,9 @@ class Dataset(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
     jobs: Mapped[list["Job"]] = relationship(back_populates="dataset", cascade="all, delete-orphan")
+    profiles: Mapped[list["Profile"]] = relationship(
+        back_populates="dataset", cascade="all, delete-orphan"
+    )
 
 
 class Job(Base):
@@ -104,3 +107,41 @@ class Job(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
     dataset: Mapped["Dataset"] = relationship(back_populates="jobs")
+    profile: Mapped["Profile | None"] = relationship(back_populates="job")
+
+
+class Profile(Base):
+    """Resultado del EDA de un dataset: el JSON que alimenta los dashboards.
+
+    Una fila por corrida de perfilado, no una por dataset: re-perfilar deja el
+    perfil anterior en su lugar en vez de pisarlo. Cuesta unas filas de más y a
+    cambio permite comparar el antes y el después cuando llegue el pipeline de
+    features (Fase 3), que produce datasets derivados cuyo perfil debería
+    poder contrastarse con el del crudo.
+
+    El resumen va en un solo JSONB y no en columnas: su forma depende de las
+    columnas del dataset, que son distintas en cada uno. Normalizarlo sería una
+    tabla `profile_column_stat` con una fila por columna y una columna por
+    métrica posible — mucha ceremonia para algo que el frontend siempre lee
+    entero y de una sola vez.
+    """
+
+    __tablename__ = "profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # El job que lo produjo, para poder ir del perfil al error/tiempos de su
+    # corrida. `SET NULL` y no `CASCADE`: si algún día se limpian jobs viejos,
+    # el perfil sigue siendo válido — solo pierde la trazabilidad de cómo salió.
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
+    )
+    row_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    column_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    summary: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    dataset: Mapped["Dataset"] = relationship(back_populates="profiles")
+    job: Mapped["Job | None"] = relationship(back_populates="profile")

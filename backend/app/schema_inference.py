@@ -22,8 +22,12 @@ from app.models import DatasetFormat
 MAX_NULL_COUNT_COLUMNS = 500
 
 
-def _read_expression(path: Path, fmt: DatasetFormat) -> str:
+def read_expression(path: Path, fmt: DatasetFormat) -> str:
     """Expresión SQL de DuckDB para leer el archivo.
+
+    Pública porque `app.profiling` la reusa: el perfilado tiene que leer el
+    archivo con exactamente las mismas opciones que la inferencia de esquema,
+    o reportaría tipos distintos a los que ya se le mostraron al usuario.
 
     El path va como parámetro `?` y no interpolado en el string: es la misma
     razón de siempre (evitar inyección), y además nos ahorra pelearnos con las
@@ -51,7 +55,7 @@ def infer_schema(path: Path, fmt: DatasetFormat) -> tuple[dict, int]:
     (versión del inferidor, delimitador detectado) sin migrar los datos ya
     guardados.
     """
-    read_expr = _read_expression(path, fmt)
+    read_expr = read_expression(path, fmt)
     path_param = [str(path)]
 
     with duckdb.connect(":memory:") as connection:

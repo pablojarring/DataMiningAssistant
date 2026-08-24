@@ -1,5 +1,33 @@
 name: dataforge
 
+# Configuracion compartida por la API y los workers. Son el MISMO codigo en la
+# misma imagen, corriendo como dos procesos distintos, asi que tienen que ver
+# exactamente las mismas variables: si el worker apuntara a otra base o a otro
+# bucket, escribiria resultados donde la API nunca los va a buscar. Un anchor de
+# YAML lo garantiza; copiar y pegar el bloque garantiza lo contrario.
+x-app-build: &app-build
+  context: ./backend
+  dockerfile: Dockerfile
+
+x-app-env: &app-env
+  DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://dataforge:dataforge_dev_password@postgres:5432/dataforge}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173}
+  # `minio` es el hostname del servicio dentro de la red de compose, y el
+  # puerto es el interno (9000), no el publicado en el host.
+  MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+  MINIO_ROOT_USER: ${MINIO_ROOT_USER:-dataforge}
+  MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-dataforge_dev_password}
+  MINIO_BUCKET: ${MINIO_BUCKET:-dataforge-datasets}
+
+x-app-depends: &app-depends
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  minio:
+    condition: service_healthy
+
 services:
   # --- Reverse proxy: entrypoint único para frontend + API + consolas de infra ---
   traefik:
@@ -80,26 +108,9 @@ services:
       - dataforge
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://dataforge:dataforge_dev_password@postgres:5432/dataforge}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173}
-      # `minio` es el hostname del servicio dentro de la red de compose, y el
-      # puerto es el interno (9000), no el publicado en el host.
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-dataforge}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-dataforge_dev_password}
-      MINIO_BUCKET: ${MINIO_BUCKET:-dataforge-datasets}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+    build: *app-build
+    environment: *app-env
+    depends_on: *app-depends
     volumes:
       - ./backend:/app
     labels:
@@ -108,6 +119,22 @@ services:
       - "traefik.http.middlewares.backend-strip.stripprefix.prefixes=/api"
       - "traefik.http.routers.backend.middlewares=backend-strip"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
+    networks:
+      - dataforge
+
+  worker:
+    # Mismo build y mismas variables que el backend: cambia el proceso, no el
+    # codigo. Escalable con `docker compose up -d --scale worker=3` — Redis
+    # reparte las tareas entre todos los que esten escuchando la cola.
+    build: *app-build
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
+    environment: *app-env
+    depends_on: *app-depends
+    # El bind mount permite editar tareas sin rebuildear, pero Celery no
+    # recarga solo como uvicorn: despues de tocar una tarea hay que hacer
+    # `docker compose restart worker`.
+    volumes:
+      - ./backend:/app
     networks:
       - dataforge
 

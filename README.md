@@ -10,32 +10,43 @@ motor de leakage, roadmap por fases y trade-offs) está en
 [`docs/DataForge-arquitectura.md`](docs/DataForge-arquitectura.md). Este
 README cubre solo cómo correr lo que ya existe.
 
-## Estado actual: Fase 1 — Ingesta (en progreso)
+## Estado actual: Fase 1 — Ingesta y perfilado EDA
 
 Lo que ya funciona:
 
-- `docker compose up` levanta Postgres, MinIO, Redis, el backend (FastAPI)
-  y el frontend (React + Vite + TS), todos detrás de Traefik.
+- `docker compose up` levanta Postgres, MinIO, Redis, el backend (FastAPI), un
+  worker de Celery y el frontend (React + Vite + TS), todos detrás de Traefik.
 - **Subida real de datasets.** `POST /datasets` recibe un CSV o Parquet por
   multipart, lo guarda en MinIO, infiere el esquema con DuckDB (nombre y tipo
   de cada columna, conteo de nulos, cantidad de filas) y registra la ficha en
-  Postgres. El frontend tiene selector de archivo y muestra el esquema
-  resultante en una tabla.
+  Postgres.
+- **Perfilado EDA asíncrono.** `POST /datasets/{id}/profile` encola un job de
+  Celery y responde en milisegundos; el worker baja el archivo de MinIO y
+  calcula, con DuckDB: nulos y cardinalidad por columna, min/max/media/desvío y
+  cuartiles de las numéricas, histogramas, valores más frecuentes de las
+  categóricas, rango de las temporales, y la matriz de correlación de Pearson.
+  El avance se sigue con `GET /jobs/{id}` y el resultado se pide con
+  `GET /datasets/{id}/profile`.
 - Endpoints de `Dataset` (`POST/GET /datasets`, `GET /datasets/{id}`) y
   `GET /health`, sobre Postgres vía SQLAlchemy + Alembic.
 - CI en GitHub Actions: lint + type check + tests de backend contra Postgres y
   MinIO reales; lint + build del frontend.
 
-Decisión de diseño que vale la pena mencionar: los tests de subida corren
-contra un MinIO de verdad, no contra un mock de S3. Un mock confirma que
-llamamos a `upload_fileobj`, no que el objeto quede guardado y se pueda
-recuperar — y los bugs de storage (credenciales, firma v4, bucket inexistente)
-viven justo en esa diferencia.
+Dos decisiones de diseño que vale la pena mencionar:
+
+- Los tests de subida corren contra un MinIO de verdad, no contra un mock de
+  S3. Un mock confirma que llamamos a `upload_fileobj`, no que el objeto quede
+  guardado y se pueda recuperar — y los bugs de storage (credenciales, firma
+  v4, bucket inexistente) viven justo en esa diferencia.
+- El worker usa la **misma imagen** que la API, con otro `command`. La
+  alternativa —un proyecto `workers/` con su propia copia de los modelos, la
+  config y el cliente de storage— garantiza que tarde o temprano el worker
+  escriba en un esquema que la API ya cambió.
 
 Lo que **todavía no** hace (ver roadmap en `docs/DataForge-arquitectura.md`,
-sección 5): perfilado EDA con workers de Celery, dashboards, splitting,
-detección de leakage, feature engineering, entrenamiento/serving de modelos,
-Airflow, Spark, observabilidad.
+sección 5): los dashboards del frontend (histogramas, boxplots, mapa de
+correlación y matriz de nulos), splitting, detección de leakage, feature
+engineering, entrenamiento/serving de modelos, Airflow, Spark, observabilidad.
 
 ## Cómo correrlo
 
@@ -79,6 +90,32 @@ Requisitos: Docker Desktop (o Docker Engine + Compose) instalado.
    - Consola de MinIO: http://localhost:9001
    - Dashboard de Traefik: http://localhost:8080
 
+## Perfilar un dataset de punta a punta
+
+Con la pila levantada, esto ejercita el camino completo: API, cola de Redis,
+worker y storage.
+
+```bash
+# 1. Subir el archivo
+curl -H "Host: dataforge.localhost" -F "file=@casas.csv"      http://127.0.0.1/api/datasets
+
+# 2. Encolar el perfilado (devuelve un job en estado `pending`)
+curl -X POST -H "Host: dataforge.localhost"      http://127.0.0.1/api/datasets/<DATASET_ID>/profile
+
+# 3. Seguir el job hasta que quede en `done`
+curl -H "Host: dataforge.localhost" http://127.0.0.1/api/jobs/<JOB_ID>
+
+# 4. Traer el resultado
+curl -H "Host: dataforge.localhost"      http://127.0.0.1/api/datasets/<DATASET_ID>/profile
+```
+
+Para ver al worker trabajando: `docker compose logs -f worker`. Y para
+comprobar que la cola reparte de verdad entre varios procesos:
+`docker compose up -d --scale worker=3`.
+
+Ojo: el bind mount deja editar el código sin rebuildear, pero Celery no recarga
+solo como uvicorn. Después de tocar una tarea, `docker compose restart worker`.
+
 ## Desarrollo local (sin Docker, para iterar más rápido)
 
 **Backend:**
@@ -105,7 +142,7 @@ npm run dev
 ```bash
 # Backend (necesita Postgres y MinIO accesibles)
 #   docker compose up -d postgres minio
-cd backend && ruff check . && mypy app tests && pytest
+cd backend && ruff check . && mypy app tests conftest.py && pytest
 
 # Frontend
 cd frontend && npm run lint && npm run build
@@ -130,6 +167,17 @@ export MINIO_ENDPOINT=http://localhost:9000
 Además, `tests/test_migrations.py::test_no_model_migration_drift` falla si
 alguien toca `app/models.py` sin generar la migración correspondiente. Ese
 desajuste es silencioso en desarrollo y explota recién al desplegar.
+
+Los tests no corren contra la base de desarrollo sino contra una hermana
+llamada `dataforge_test`, que se crea sola la primera vez (ver
+`backend/conftest.py`). Como cada test destruye y reconstruye el esquema
+completo con Alembic, apuntar a la base de desarrollo significaría que correr
+`pytest` te borra los datasets con los que estabas trabajando.
+
+Las tareas de Celery corren dentro del proceso de pytest (modo *eager*), así
+que la suite no necesita Redis: lo único que se reemplaza es el transporte del
+mensaje: la tarea, la base y el storage son los reales. El camino con broker de
+verdad se verifica con la pila de Docker Compose, como se muestra más arriba.
 
 ## Migraciones nuevas
 

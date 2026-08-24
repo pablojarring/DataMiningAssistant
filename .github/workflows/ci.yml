@@ -68,11 +68,14 @@ jobs:
         run: ruff check .
 
       - name: Type check (mypy)
-        run: mypy app tests
+        run: mypy app tests conftest.py
 
       # Los fixtures construyen el esquema corriendo Alembic contra el servicio
       # postgres de arriba, así que esto también valida las migraciones. Los
       # tests de subida hablan con el MinIO real levantado más arriba.
+      # La base que usan es `dataforge_test`, creada sola por el conftest de la
+      # raíz del backend (ver ahí el porqué); el usuario del servicio es dueño
+      # de la instancia, así que puede crearla.
       - name: Tests (pytest)
         run: pytest --cov=app --cov-report=term-missing
 

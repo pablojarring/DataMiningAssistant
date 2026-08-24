@@ -3,8 +3,10 @@
 `POST /datasets` recibe el archivo real: lo guarda en MinIO, infiere el esquema
 con DuckDB y registra la ficha en Postgres.
 
-Lo que todavía no hace (Fase 1, siguientes pasos): encolar el job de perfilado
-EDA en Celery. Los endpoints de perfil llegan con eso.
+`POST /datasets/{id}/profile` encola el EDA completo en Celery y devuelve el job
+para consultarlo; `GET /datasets/{id}/profile` devuelve el resultado cuando
+está listo. La división entre los dos es deliberada: la inferencia de esquema
+de la subida es barata y va en el request, el perfilado es caro y va al worker.
 """
 
 import shutil
@@ -18,9 +20,10 @@ from sqlalchemy.orm import Session
 
 from app import storage
 from app.database import get_db
-from app.models import Dataset
+from app.models import Dataset, Job, JobStatus, JobType, Profile
 from app.schema_inference import format_from_filename, infer_schema
-from app.schemas import DatasetDetail, DatasetSummary
+from app.schemas import DatasetDetail, DatasetSummary, JobDetail, ProfileDetail
+from app.tasks.profiling import profile_dataset
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -111,3 +114,70 @@ def get_dataset(dataset_id: uuid.UUID, db: Session = Depends(get_db)) -> Dataset
     if dataset is None:
         raise HTTPException(status_code=404, detail="Dataset no encontrado")
     return dataset
+
+
+@router.post("/{dataset_id}/profile", response_model=JobDetail, status_code=202)
+def enqueue_profile(dataset_id: uuid.UUID, db: Session = Depends(get_db)) -> Job:
+    """Encola el perfilado EDA del dataset y devuelve el job creado.
+
+    202 y no 201: la respuesta no describe un perfil terminado sino un trabajo
+    aceptado que todavía no ocurrió. El cliente sigue su avance con
+    `GET /jobs/{id}` y pide el resultado con `GET /datasets/{id}/profile`.
+    """
+    dataset = db.get(Dataset, dataset_id)
+    if dataset is None:
+        raise HTTPException(status_code=404, detail="Dataset no encontrado")
+    if not dataset.source_uri:
+        raise HTTPException(
+            status_code=409,
+            detail="El dataset no tiene archivo en el object storage; no hay nada que perfilar.",
+        )
+
+    job = Job(type=JobType.profile, status=JobStatus.pending, dataset_id=dataset.id)
+    db.add(job)
+    # El commit va ANTES de encolar, no después: el worker puede levantar la
+    # tarea en el mismo milisegundo, y si la fila todavía no está commiteada se
+    # encuentra con un job que "no existe". Es la carrera clásica de encolar
+    # dentro de una transacción abierta.
+    db.commit()
+    db.refresh(job)
+
+    try:
+        profile_dataset.delay(str(job.id))
+    except Exception as exc:
+        # Redis caído: sin esto el job quedaría en `pending` para siempre y el
+        # frontend giraría eternamente esperando algo que nadie va a ejecutar.
+        job.status = JobStatus.failed
+        job.error = f"No se pudo encolar la tarea: {exc}"
+        db.commit()
+        raise HTTPException(
+            status_code=503, detail="La cola de tareas no está disponible. Intentá de nuevo."
+        ) from exc
+
+    return job
+
+
+@router.get("/{dataset_id}/profile", response_model=ProfileDetail)
+def get_profile(dataset_id: uuid.UUID, db: Session = Depends(get_db)) -> Profile:
+    """Devuelve el perfil más reciente del dataset.
+
+    Guardamos un perfil por corrida, así que acá se elige el último: un
+    re-perfilado debe reflejarse de inmediato en la UI, y el historial queda
+    disponible en la tabla para cuando haga falta comparar versiones.
+    """
+    dataset = db.get(Dataset, dataset_id)
+    if dataset is None:
+        raise HTTPException(status_code=404, detail="Dataset no encontrado")
+
+    profile = (
+        db.query(Profile)
+        .filter(Profile.dataset_id == dataset_id)
+        .order_by(Profile.created_at.desc())
+        .first()
+    )
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Este dataset todavía no tiene perfil. Encolá uno con POST /datasets/{id}/profile.",
+        )
+    return profile

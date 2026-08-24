@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from app.config import get_settings
 from app.database import Base
-from app.models import Dataset, Job  # noqa: F401 — registran metadata en Base
+from app.models import Dataset, Job, Profile  # noqa: F401 — registran metadata en Base
 
 config = context.config
 
