@@ -1,0 +1,7 @@
+# Sin esto, `COPY . .` arrastra el node_modules del host dentro de la imagen:
+# build lento y, peor, binarios compilados para otra plataforma que pisan los
+# que instalo `npm ci` dentro del contenedor.
+node_modules
+dist
+*.tsbuildinfo
+.git
