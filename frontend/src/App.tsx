@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { ProfileDashboard } from "@/ProfileDashboard";
+import { SplitPanel } from "@/SplitPanel";
 import {
   api,
   formatBytes,
@@ -198,6 +199,11 @@ export default function App() {
                   <span className="flex-1 truncate font-medium text-slate-100">
                     {dataset.name}
                   </span>
+                  {dataset.parent_dataset_id && (
+                    <span className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
+                      derivado
+                    </span>
+                  )}
                   <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-400">
                     {dataset.format}
                   </span>
@@ -273,6 +279,12 @@ export default function App() {
                 </tbody>
               </table>
             </div>
+
+            <SplitPanel
+              datasetId={selected.id}
+              columns={selected.inferred_schema?.columns ?? []}
+              onError={setError}
+            />
 
             {profile ? (
               <ProfileDashboard profile={profile} />

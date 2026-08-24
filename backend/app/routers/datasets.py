@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app import storage
 from app.database import get_db
 from app.models import Dataset, Job, JobStatus, JobType, Profile
+from app.routers.dispatch import enqueue
 from app.schema_inference import format_from_filename, infer_schema
 from app.schemas import DatasetDetail, DatasetSummary, JobDetail, ProfileDetail
 from app.tasks.profiling import profile_dataset
@@ -134,27 +135,7 @@ def enqueue_profile(dataset_id: uuid.UUID, db: Session = Depends(get_db)) -> Job
         )
 
     job = Job(type=JobType.profile, status=JobStatus.pending, dataset_id=dataset.id)
-    db.add(job)
-    # El commit va ANTES de encolar, no después: el worker puede levantar la
-    # tarea en el mismo milisegundo, y si la fila todavía no está commiteada se
-    # encuentra con un job que "no existe". Es la carrera clásica de encolar
-    # dentro de una transacción abierta.
-    db.commit()
-    db.refresh(job)
-
-    try:
-        profile_dataset.delay(str(job.id))
-    except Exception as exc:
-        # Redis caído: sin esto el job quedaría en `pending` para siempre y el
-        # frontend giraría eternamente esperando algo que nadie va a ejecutar.
-        job.status = JobStatus.failed
-        job.error = f"No se pudo encolar la tarea: {exc}"
-        db.commit()
-        raise HTTPException(
-            status_code=503, detail="La cola de tareas no está disponible. Intentá de nuevo."
-        ) from exc
-
-    return job
+    return enqueue(db, job, profile_dataset.delay)
 
 
 @router.get("/{dataset_id}/profile", response_model=ProfileDetail)

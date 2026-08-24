@@ -32,7 +32,11 @@ celery_app = Celery(
     backend=settings.redis_url,
     # Sin esto, el worker no descubre las tareas: importar el módulo es lo que
     # ejecuta los decoradores `@celery_app.task` que las registran.
-    include=["app.tasks.profiling"],
+    include=[
+        "app.tasks.profiling",
+        "app.tasks.splitting",
+        "app.tasks.leakage",
+    ],
 )
 
 celery_app.conf.update(

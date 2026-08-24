@@ -1,9 +1,9 @@
-"""Modelos SQLAlchemy — Dataset, Job y Profile.
+"""Modelos SQLAlchemy — Dataset, Job, Profile, SplitConfig y LeakageReport.
 
-El resto de entidades del plan (SplitConfig, LeakageReport, FeaturePipeline,
-Experiment, ModelVersion — ver DataForge-arquitectura.md, sección 3.1) se
-agregan en las fases 2-4, cada una junto con el motor que las produce, para
-no tener tablas vacías sin ningún endpoint que las use.
+El resto de entidades del plan (FeaturePipeline, Experiment, ModelVersion —
+ver DataForge-arquitectura.md, sección 3.1) se agregan en las fases 3-4, cada
+una junto con el motor que las produce, para no tener tablas vacías sin ningún
+endpoint que las use.
 """
 
 import enum
@@ -32,6 +32,22 @@ class JobType(enum.StrEnum):
     feature_pipeline = "feature_pipeline"
     train = "train"
     leakage_check = "leakage_check"
+
+
+class SplitStrategy(enum.StrEnum):
+    random = "random"
+    stratified = "stratified"
+    # `time_based` y no `time`: el miembro seria mas corto, pero estos enums
+    # heredan de str y ya nos mordio una vez el sombreado de un metodo (ver
+    # `JobType.split_dataset`). Un nombre explicito cuesta cuatro caracteres.
+    time_based = "time_based"
+    group = "group"
+
+
+class LeakageSeverity(enum.StrEnum):
+    info = "info"
+    warning = "warning"
+    critical = "critical"
 
 
 class JobStatus(enum.StrEnum):
@@ -145,3 +161,90 @@ class Profile(Base):
 
     dataset: Mapped["Dataset"] = relationship(back_populates="profiles")
     job: Mapped["Job | None"] = relationship(back_populates="profile")
+
+
+class SplitConfig(Base):
+    """Cómo se partió un dataset y qué datasets hijos salieron de ahí.
+
+    Los splits se guardan como archivos y no se recalculan con la misma semilla
+    cada vez que hacen falta. Cuesta espacio, y a cambio permite auditar
+    *exactamente* las filas con las que se entrenó — que es justo lo que el motor
+    de leakage necesita leer, y lo que hace reproducible un experimento meses
+    después, aunque el dataset original haya cambiado.
+
+    Los tres hijos son `SET NULL` y no `CASCADE`: borrar un dataset de train no
+    debería llevarse por delante el registro de que ese split existió y con qué
+    parámetros se hizo.
+    """
+
+    __tablename__ = "split_configs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    strategy: Mapped[SplitStrategy] = mapped_column(
+        Enum(SplitStrategy, name="split_strategy"), nullable=False
+    )
+    # Proporciones, columna de target/tiempo/grupo y semilla. Van en JSONB
+    # porque cada estrategia usa un subconjunto distinto: como columnas, la
+    # tabla tendria una mayoria de NULL en cada fila.
+    params_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+    train_dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True
+    )
+    val_dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True
+    )
+    test_dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True
+    )
+
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    dataset: Mapped["Dataset"] = relationship(foreign_keys=[dataset_id])
+    train_dataset: Mapped["Dataset | None"] = relationship(foreign_keys=[train_dataset_id])
+    val_dataset: Mapped["Dataset | None"] = relationship(foreign_keys=[val_dataset_id])
+    test_dataset: Mapped["Dataset | None"] = relationship(foreign_keys=[test_dataset_id])
+    leakage_reports: Mapped[list["LeakageReport"]] = relationship(
+        back_populates="split_config", cascade="all, delete-orphan"
+    )
+
+
+class LeakageReport(Base):
+    """Resultado de auditar un split en busca de fuga de información.
+
+    `checks` guarda la lista completa de chequeos, incluidos los que pasaron y
+    los que no aplican. Guardar solo los hallazgos haria imposible distinguir
+    "esto se verifico y esta bien" de "esto no se verifico", que es exactamente
+    la diferencia que un reporte de auditoria tiene que dejar clara.
+
+    `highest_severity` esta desnormalizado a proposito: es lo unico que hace
+    falta para pintar el semaforo en un listado, y calcularlo implicaria abrir
+    el JSONB de cada reporte en cada consulta.
+    """
+
+    __tablename__ = "leakage_reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    split_config_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("split_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    target_column: Mapped[str] = mapped_column(String(255), nullable=False)
+    checks: Mapped[list] = mapped_column(JSONB, nullable=False)
+    highest_severity: Mapped[LeakageSeverity] = mapped_column(
+        Enum(LeakageSeverity, name="leakage_severity"), nullable=False
+    )
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    split_config: Mapped["SplitConfig"] = relationship(back_populates="leakage_reports")

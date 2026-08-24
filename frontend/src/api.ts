@@ -32,13 +32,14 @@ export interface DatasetSummary {
   size_bytes: number | null;
   row_count_estimate: number | null;
   version: number;
+  /** No nulo cuando el dataset es una partición generada por un split. */
+  parent_dataset_id: string | null;
   created_at: string;
 }
 
 export interface DatasetDetail extends DatasetSummary {
   source_uri: string | null;
   inferred_schema: InferredSchema | null;
-  parent_dataset_id: string | null;
 }
 
 export type JobStatus = "pending" | "running" | "done" | "failed";
@@ -112,6 +113,60 @@ export interface ProfileSummary {
   };
 }
 
+export type SplitStrategy = "random" | "stratified" | "time_based" | "group";
+export type LeakageSeverity = "info" | "warning" | "critical";
+
+export interface SplitRequest {
+  strategy: SplitStrategy;
+  train: number;
+  val: number;
+  test: number;
+  target_column?: string | null;
+  time_column?: string | null;
+  group_column?: string | null;
+  seed?: number;
+}
+
+export interface SplitConfig {
+  id: string;
+  dataset_id: string;
+  strategy: SplitStrategy;
+  params_json: {
+    train: number;
+    val: number;
+    test: number;
+    target_column: string | null;
+    time_column: string | null;
+    group_column: string | null;
+    seed: number;
+    row_counts: Record<string, number>;
+  };
+  train_dataset_id: string | null;
+  val_dataset_id: string | null;
+  test_dataset_id: string | null;
+  job_id: string | null;
+  created_at: string;
+}
+
+export interface LeakageCheck {
+  check: string;
+  title: string;
+  severity: LeakageSeverity;
+  message: string;
+  columns: string[];
+  details: Record<string, unknown>;
+}
+
+export interface LeakageReport {
+  id: string;
+  split_config_id: string;
+  target_column: string;
+  checks: LeakageCheck[];
+  highest_severity: LeakageSeverity;
+  job_id: string | null;
+  created_at: string;
+}
+
 export interface Profile {
   id: string;
   dataset_id: string;
@@ -172,6 +227,30 @@ export const api = {
    * recién subido. Se traduce a `null` para que quien llama distinga "no hay
    * perfil" (mostrar el botón de perfilar) de "algo se rompió" (mostrar error).
    */
+  enqueueSplit: (id: string, body: SplitRequest) =>
+    request<Job>(`/datasets/${id}/split`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+
+  listSplits: (id: string) => request<SplitConfig[]>(`/datasets/${id}/splits`),
+
+  enqueueLeakageCheck: (splitId: string, targetColumn: string) =>
+    request<Job>(`/splits/${splitId}/leakage-check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target_column: targetColumn }),
+    }),
+
+  /** El reporte más reciente del split, o `null` si todavía no se auditó. */
+  getLeakageReport: async (splitId: string): Promise<LeakageReport | null> => {
+    const response = await fetch(`${API_BASE_URL}/splits/${splitId}/leakage-report`);
+    if (response.status === 404) return null;
+    if (!response.ok) await readError(response, "GET", `/splits/${splitId}/leakage-report`);
+    return (await response.json()) as LeakageReport;
+  },
+
   getProfile: async (id: string): Promise<Profile | null> => {
     const response = await fetch(`${API_BASE_URL}/datasets/${id}/profile`);
     if (response.status === 404) return null;
