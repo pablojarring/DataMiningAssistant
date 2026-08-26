@@ -51,6 +51,10 @@ Lo que ya funciona:
   mezcla de dos componentes de [21st.dev](https://21st.dev): un plasma de WebGL
   y una grilla que se deforma hacia el cursor y ondula con cada clic. Ver
   `src/components/ui/kinetic-shader-background.tsx`.
+- **Tablas con orden, filtro y paginación** (`data-table.tsx`, sobre TanStack
+  Table) para el listado de datasets y la vista de esquema, y una **zona de
+  arrastrar y soltar** con validación de tipo y tamaño para la subida
+  (`file-dropzone.tsx`). Ambos adaptados del catálogo de 21st.dev.
 - CI en GitHub Actions: lint + type check + tests de backend contra Postgres y
   MinIO reales; lint + build del frontend.
 

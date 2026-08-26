@@ -6,14 +6,19 @@ import {
   api,
   formatBytes,
   waitForJob,
+  type ColumnSchema,
   type DatasetDetail,
   type DatasetSummary,
   type HealthResponse,
   type Job,
   type Profile,
 } from "@/api";
+import { DataTable, SortableHeader } from "@/components/ui/data-table";
+import { FileDropzone } from "@/components/ui/file-dropzone";
 import { KineticShaderBackground } from "@/components/ui/kinetic-shader-background";
 import { cn } from "@/lib/utils";
+
+import type { ColumnDef } from "@tanstack/react-table";
 
 const JOB_LABEL: Record<Job["status"], string> = {
   pending: "En cola…",
@@ -21,6 +26,122 @@ const JOB_LABEL: Record<Job["status"], string> = {
   done: "Listo",
   failed: "Falló",
 };
+
+/**
+ * Columnas del listado de datasets.
+ *
+ * Se definen fuera del componente porque TanStack recalcula la tabla cuando
+ * cambia la identidad del array: declararlas adentro las recrearía en cada
+ * render y tiraría el estado de orden y paginación en cada tecla que se
+ * escriba en el filtro.
+ */
+const DATASET_COLUMNS: ColumnDef<DatasetSummary, never>[] = [
+  {
+    accessorKey: "name",
+    header: ({ column }) => <SortableHeader column={column}>Dataset</SortableHeader>,
+    cell: ({ row }) => (
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate font-medium text-slate-100">{row.original.name}</span>
+        {row.original.parent_dataset_id && (
+          <span className="shrink-0 rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
+            derivado
+          </span>
+        )}
+      </div>
+    ),
+  },
+  {
+    accessorKey: "format",
+    header: "Formato",
+    cell: ({ row }) => (
+      <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-400">
+        {row.original.format}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "size_bytes",
+    header: ({ column }) => (
+      <div className="text-right">
+        <SortableHeader column={column} align="right">
+          Tamaño
+        </SortableHeader>
+      </div>
+    ),
+    cell: ({ row }) => (
+      <div className="tabular text-right text-xs text-slate-400">
+        {formatBytes(row.original.size_bytes)}
+      </div>
+    ),
+  },
+  {
+    accessorKey: "row_count_estimate",
+    header: ({ column }) => (
+      <div className="text-right">
+        <SortableHeader column={column} align="right">
+          Filas
+        </SortableHeader>
+      </div>
+    ),
+    cell: ({ row }) => (
+      <div className="tabular text-right text-xs text-slate-400">
+        {row.original.row_count_estimate?.toLocaleString() ?? "—"}
+      </div>
+    ),
+  },
+  {
+    accessorKey: "created_at",
+    header: ({ column }) => <SortableHeader column={column}>Subido</SortableHeader>,
+    cell: ({ row }) => (
+      <span className="text-xs text-slate-500">
+        {new Date(row.original.created_at).toLocaleDateString()}
+      </span>
+    ),
+  },
+];
+
+const DATASET_COLUMN_LABELS = {
+  name: "Dataset",
+  format: "Formato",
+  size_bytes: "Tamaño",
+  row_count_estimate: "Filas",
+  created_at: "Subido",
+};
+
+/** Columnas de la vista de esquema de un dataset. */
+const SCHEMA_COLUMNS: ColumnDef<ColumnSchema, never>[] = [
+  {
+    accessorKey: "name",
+    header: ({ column }) => <SortableHeader column={column}>Columna</SortableHeader>,
+    cell: ({ row }) => <span className="text-slate-200">{row.original.name}</span>,
+  },
+  {
+    accessorKey: "dtype",
+    header: ({ column }) => <SortableHeader column={column}>Tipo</SortableHeader>,
+    cell: ({ row }) => (
+      <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[11px] text-slate-400">
+        {row.original.dtype}
+      </code>
+    ),
+  },
+  {
+    accessorKey: "null_count",
+    header: ({ column }) => (
+      <div className="text-right">
+        <SortableHeader column={column} align="right">
+          Nulos
+        </SortableHeader>
+      </div>
+    ),
+    cell: ({ row }) => (
+      <div className="tabular text-right text-slate-400">
+        {row.original.null_count?.toLocaleString() ?? "—"}
+      </div>
+    ),
+  },
+];
+
+const SCHEMA_COLUMN_LABELS = { name: "Columna", dtype: "Tipo", null_count: "Nulos" };
 
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -156,29 +277,23 @@ export default function App() {
           <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
             Subir dataset
           </h2>
-          <form
-            onSubmit={handleUpload}
-            className="glass mt-3 flex flex-wrap items-center gap-3 rounded-2xl p-3"
-          >
-            <input
-              type="file"
-              accept=".csv,.parquet"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-              className="min-w-0 flex-1 text-sm text-slate-400 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-sm file:text-slate-200 hover:file:bg-white/15"
-            />
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Nombre (opcional)"
-              className="min-w-48 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-accent/50 focus:outline-none"
-            />
-            <button
-              type="submit"
-              disabled={!file || uploading}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-ink transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
-            >
-              {uploading ? "Subiendo…" : "Subir"}
-            </button>
+          <form onSubmit={handleUpload} className="mt-3 flex flex-col gap-3">
+            <FileDropzone file={file} onFileChange={setFile} disabled={uploading} />
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Nombre (opcional)"
+                className="min-w-48 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-accent/50 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={!file || uploading}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-ink transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+              >
+                {uploading ? "Subiendo…" : "Subir"}
+              </button>
+            </div>
           </form>
         </section>
 
@@ -186,42 +301,19 @@ export default function App() {
           <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
             Datasets
           </h2>
-          <ul className="mt-3 space-y-2">
-            {datasets.map((dataset) => (
-              <li key={dataset.id}>
-                <button
-                  onClick={() => void show(dataset.id)}
-                  className={cn(
-                    "glass flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left transition hover:border-accent/40 hover:bg-white/[0.07]",
-                    dataset.id === selected?.id && "border-accent/50 bg-accent/10",
-                  )}
-                >
-                  <span className="flex-1 truncate font-medium text-slate-100">
-                    {dataset.name}
-                  </span>
-                  {dataset.parent_dataset_id && (
-                    <span className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
-                      derivado
-                    </span>
-                  )}
-                  <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-400">
-                    {dataset.format}
-                  </span>
-                  <span className="tabular w-20 text-right text-xs text-slate-400">
-                    {formatBytes(dataset.size_bytes)}
-                  </span>
-                  <span className="tabular w-28 text-right text-xs text-slate-400">
-                    {dataset.row_count_estimate?.toLocaleString() ?? "—"} filas
-                  </span>
-                </button>
-              </li>
-            ))}
-            {datasets.length === 0 && (
-              <li className="rounded-xl border border-dashed border-white/10 px-4 py-6 text-center text-sm text-slate-500">
-                Todavía no hay datasets. Subí un CSV para empezar.
-              </li>
-            )}
-          </ul>
+          <DataTable
+            className="mt-3"
+            data={datasets}
+            columns={DATASET_COLUMNS}
+            columnLabels={DATASET_COLUMN_LABELS}
+            filterColumn="name"
+            filterPlaceholder="Buscar dataset…"
+            pageSize={8}
+            rowLabel="datasets"
+            emptyMessage="Todavía no hay datasets. Subí un CSV para empezar."
+            onRowClick={(dataset) => void show(dataset.id)}
+            isRowActive={(dataset) => dataset.id === selected?.id}
+          />
         </section>
 
         {selected && (
@@ -255,30 +347,17 @@ export default function App() {
             <h3 className="mt-8 border-b border-white/10 pb-2 text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
               Esquema
             </h3>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-[10px] uppercase tracking-wider text-slate-500">
-                    <th className="py-2 pr-4 text-left font-medium">Columna</th>
-                    <th className="py-2 pr-4 text-left font-medium">Tipo</th>
-                    <th className="py-2 text-left font-medium">Nulos</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selected.inferred_schema?.columns.map((column) => (
-                    <tr key={column.name} className="border-t border-white/[0.06]">
-                      <td className="py-2 pr-4 text-slate-200">{column.name}</td>
-                      <td className="py-2 pr-4">
-                        <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[11px] text-slate-400">
-                          {column.dtype}
-                        </code>
-                      </td>
-                      <td className="py-2 text-slate-400">{column.null_count ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              className="mt-3"
+              data={selected.inferred_schema?.columns ?? []}
+              columns={SCHEMA_COLUMNS}
+              columnLabels={SCHEMA_COLUMN_LABELS}
+              filterColumn="name"
+              filterPlaceholder="Buscar columna…"
+              pageSize={12}
+              rowLabel="columnas"
+              emptyMessage="Sin esquema inferido."
+            />
 
             <SplitPanel
               datasetId={selected.id}
